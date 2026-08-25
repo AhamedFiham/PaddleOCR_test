@@ -1,0 +1,8 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+uploads/
+samples/
+*.md
+_probe.png

@@ -1,0 +1,11 @@
+# Python 3.12 only. paddlepaddle publishes no wheels for 3.14+, where the
+# install fails with "Could not find a version that satisfies the
+# requirement paddlepaddle (from versions: none)".
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+pillow==12.3.0
+fastapi==0.141.1
+uvicorn==0.52.4
+sqlalchemy==2.0.52
+pymysql==1.2.0
+python-multipart==0.0.32

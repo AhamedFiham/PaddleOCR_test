@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.idea/
+
+# Uploaded invoices and their resized copies -- user data, not source.
+uploads/
+
+# Real invoice scans kept locally for testing. They are commercial
+# documents, so they stay out of the repo.
+*.avif
+In_take*.jpeg
+*_resized.*
+
+# Real credentials. Commit .env.example instead.
+.env
+
+_probe.png
