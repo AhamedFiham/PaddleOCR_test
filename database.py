@@ -1,26 +1,21 @@
-"""Database engine, session factory and declarative base.
-
-Point DATABASE_URL at an already-created empty schema; the tables
-themselves are created on first run by Base.metadata.create_all in main.
-"""
-
-import os
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "mysql+pymysql://root:root@localhost:3306/invoice_ocr?charset=utf8mb4",
-)
+# SQLite for testing: a single file, zero setup, no credentials needed.
+# Swap DATABASE_URL back to a mysql+pymysql://... string whenever you're
+# ready to move to MySQL for production - nothing else in the app needs
+# to change, SQLAlchemy handles the difference.
+DATABASE_URL = "sqlite:///./invoices.db"
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+# check_same_thread=False is required specifically for SQLite used with
+# FastAPI, since FastAPI's threadpool means requests can come from
+# different threads than the one that created the connection.
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
 def get_db():
-    """FastAPI dependency yielding a session that always gets closed."""
     db = SessionLocal()
     try:
         yield db
