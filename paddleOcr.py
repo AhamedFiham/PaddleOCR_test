@@ -12,6 +12,8 @@ import threading
 
 from paddleocr import PaddleOCR
 
+from resize_utils import PADDLE_READABLE
+
 # Detections below this score are smudges, logo fragments and scan noise.
 MIN_CONFIDENCE = 0.5
 
@@ -164,6 +166,17 @@ def run_ocr_on_image(path):
         )
     if not os.path.exists(path):
         raise FileNotFoundError(path)
+
+    # PaddleOCR prints a complaint and returns nothing for a format it
+    # cannot open, which would otherwise reach the caller as an invoice
+    # where every field happens to be empty. resize_for_ocr converts
+    # these, so arriving here with one means it was bypassed.
+    extension = os.path.splitext(path)[1].lower()
+    if extension not in PADDLE_READABLE:
+        raise ValueError(
+            f"PaddleOCR cannot read '{extension}' files. "
+            "Pass the image through resize_for_ocr() first, which converts it."
+        )
 
     lines = []
     for result in predict(path):

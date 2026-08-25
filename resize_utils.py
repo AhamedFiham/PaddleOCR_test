@@ -6,37 +6,70 @@ uploads, so nothing upstream can be trusted to have normalised them.
 
 import os
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 DEFAULT_MAX_DIMENSION = 2000
 
+# Formats PaddleOCR will open. Anything else has to be converted first:
+# it rejects the file and yields no text at all, which otherwise surfaces
+# as an invoice with every field empty rather than as an error.
+PADDLE_READABLE = {
+    ".bmp", ".dib", ".jpeg", ".jpg", ".png", ".webp",
+    ".pbm", ".pgm", ".ppm", ".pnm", ".sr", ".ras", ".tiff", ".tif",
+}
+
 
 def resize_for_ocr(image_path, max_dimension=DEFAULT_MAX_DIMENSION):
-    """Shrink an image so its longest side is at most ``max_dimension``.
+    """Normalise an image for OCR and return the path to feed PaddleOCR.
 
-    OCR accuracy plateaus well below typical phone-camera resolution while
-    processing time keeps scaling with pixel count, so this is close to a
-    free speed win.
+    Three things happen here, all of them driven by what phones actually
+    produce:
 
-    Writes a ``_resized`` copy alongside the original rather than
-    overwriting it, and returns the path that should be fed to OCR. Images
-    already within the limit are returned untouched.
+    1. EXIF orientation is applied. A phone stores the photo in sensor
+       orientation plus a rotation tag; PIL's resize drops the tag, so
+       without this the OCR sees a sideways or upside-down invoice and
+       returns text in scrambled reading order.
+    2. Oversized images are shrunk. Accuracy plateaus well below phone
+       resolution while processing time keeps scaling with pixel count.
+    3. Formats PaddleOCR cannot read (AVIF, HEIC) are converted to PNG.
+
+    A copy is written alongside the original rather than overwriting it,
+    so the stored upload stays exactly what the user sent.
     """
+    extension = os.path.splitext(image_path)[1].lower()
+
     with Image.open(image_path) as img:
         img.load()
+
+        # Rotate to upright before anything measures the dimensions --
+        # a 90-degree rotation swaps which side is the longest.
+        oriented = ImageOps.exif_transpose(img)
+        rotated = oriented.size != img.size
+        img = oriented
+
         width, height = img.size
         longest = max(width, height)
-        if longest <= max_dimension:
+        needs_resize = longest > max_dimension
+        needs_convert = extension not in PADDLE_READABLE
+
+        if not (needs_resize or needs_convert or rotated):
             return image_path
 
-        scale = max_dimension / longest
-        new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
-        resized = img.resize(new_size, Image.LANCZOS)
+        if needs_resize:
+            scale = max_dimension / longest
+            img = img.resize(
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                Image.LANCZOS,
+            )
 
-        base, ext = os.path.splitext(image_path)
-        out_path = f"{base}_resized{ext}"
-        if resized.mode not in ("RGB", "L"):
-            resized = resized.convert("RGB")
-        resized.save(out_path)
+        base = os.path.splitext(image_path)[0]
+        # PNG is lossless and always readable; a converted file must not
+        # keep an extension PaddleOCR would refuse.
+        out_extension = extension if extension in PADDLE_READABLE else ".png"
+        out_path = f"{base}_resized{out_extension}"
+
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.save(out_path)
 
     return out_path
