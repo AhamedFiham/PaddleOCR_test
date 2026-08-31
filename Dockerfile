@@ -12,6 +12,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# A container sees the host's CPU count, not its own quota, so OpenMP
+# spawns a thread per host core -- on a big shared host that is dozens of
+# threads, each with its own allocation arena, and resident memory
+# balloons until the platform OOM-kills the process. That surfaces as
+# "Killed" in the logs and a 502 to the caller, not as a Python error.
+# Inference here is serialised anyway, so extra threads buy nothing.
+ENV OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    # Cap glibc's per-thread malloc arenas, which otherwise fragment
+    # badly in long-running threaded workloads.
+    MALLOC_ARENA_MAX=2
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

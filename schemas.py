@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class OcrLine(BaseModel):
@@ -26,6 +26,20 @@ class LineItemOut(LineItem):
 
 class InvoiceFields(BaseModel):
     """The fields the extractor produces and the reviewer may edit."""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value):
+        """Treat an empty form field as "not provided".
+
+        A browser form has no concept of null: a field the extractor
+        could not fill, or the reviewer cleared, arrives as "". Without
+        this, an invoice with no readable date fails to save with a 422
+        instead of saving with the date left empty.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     invoice_number: Optional[str] = None
     invoice_date: Optional[date] = None

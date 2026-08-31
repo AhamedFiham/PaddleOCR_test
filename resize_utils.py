@@ -39,6 +39,21 @@ def resize_for_ocr(image_path, max_dimension=DEFAULT_MAX_DIMENSION):
     extension = os.path.splitext(image_path)[1].lower()
 
     with Image.open(image_path) as img:
+        width, height = img.size
+        longest = max(width, height)
+        needs_resize = longest > max_dimension
+
+        if needs_resize:
+            # Ask the JPEG decoder for a smaller image up front. Decoding
+            # a 4032x3024 photo in full costs ~50MB before any resizing;
+            # drafting it down first costs ~13MB, which matters when the
+            # container has a hard memory limit. The box must be the real
+            # target, not a square -- draft refuses to scale if either
+            # side would land under the requested size. No-op for formats
+            # that do not support it.
+            scale = max_dimension / longest
+            img.draft("RGB", (max(1, round(width * scale)), max(1, round(height * scale))))
+
         img.load()
 
         # Rotate to upright before anything measures the dimensions --
@@ -49,13 +64,12 @@ def resize_for_ocr(image_path, max_dimension=DEFAULT_MAX_DIMENSION):
 
         width, height = img.size
         longest = max(width, height)
-        needs_resize = longest > max_dimension
         needs_convert = extension not in PADDLE_READABLE
 
         if not (needs_resize or needs_convert or rotated):
             return image_path
 
-        if needs_resize:
+        if longest > max_dimension:
             scale = max_dimension / longest
             img = img.resize(
                 (max(1, round(width * scale)), max(1, round(height * scale))),

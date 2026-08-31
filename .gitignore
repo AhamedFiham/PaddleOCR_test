@@ -15,4 +15,7 @@ In_take*.jpeg
 # Real credentials. Commit .env.example instead.
 .env
 
+# Local SQLite test database.
+*.db
+
 _probe.png
