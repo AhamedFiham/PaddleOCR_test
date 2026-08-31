@@ -87,6 +87,24 @@ AMBIGUOUS_SYMBOLS = {
     "R": ("ZAR",),
 }
 
+# The symbol must not begin mid-token: without the lookbehind, the "R"
+# in a bill number like "SR2" reads as a South African rand and a Chennai
+# receipt comes back as ZAR.
+AMBIGUOUS_SYMBOL_RE = {
+    symbol: re.compile(rf"(?<![A-Za-z0-9]){re.escape(symbol)}\s*[\d(]")
+    for symbol in AMBIGUOUS_SYMBOLS
+}
+
+# Tax registration formats that identify a country outright. CGST, SGST
+# and IGST exist only under India's GST regime, and GSTIN is its
+# registration number -- far stronger evidence than a city name.
+TAX_ID_HINTS = {
+    r"\bGSTIN\b|\b[CSI]GST\b": "India",
+    r"\bABN\b|\bACN\b": "Australia",
+    r"\bBTW\b": "Netherlands",
+    r"\bUID\b|\bMWST\b": "Switzerland",
+}
+
 # Currency written as a word.
 CURRENCY_WORDS = {
     r"pounds?\s*sterling|sterling": "GBP", r"\beuros?\b": "EUR",
@@ -560,6 +578,16 @@ def _extract_location(lines):
         weight = ANCHOR_STRONG if hits > 1 else ANCHOR_WEAK
         return name, currency, weight * conf
 
+    # A tax registration scheme belongs to exactly one country, so it
+    # outranks a city name, which can appear in any address on the page.
+    for line in lines:
+        for pattern, name in TAX_ID_HINTS.items():
+            if re.search(pattern, line["text"], re.I):
+                currency = next(
+                    (c for p, (c, n) in COUNTRIES.items() if n == name), None
+                )
+                return name, currency, ANCHOR_STRONG * line["confidence"]
+
     for line in lines:
         for pattern, name in CITY_HINTS.items():
             if re.search(pattern, line["text"], re.I):
@@ -607,10 +635,15 @@ def _extract_currency(lines, country_currency=None):
     for line in lines:
         text = line["text"]
         for symbol, candidates in AMBIGUOUS_SYMBOLS.items():
-            if not re.search(rf"{re.escape(symbol)}\s*\d", text):
+            if not AMBIGUOUS_SYMBOL_RE[symbol].search(text):
                 continue
             if country_currency in candidates:
                 return country_currency, ANCHOR_STRONG * line["confidence"]
+            # A bare letter is too weak to guess from on its own -- "R"
+            # occurs constantly in reference numbers. Only trust it when
+            # the country agrees, which the branch above already covers.
+            if symbol.isalpha() and len(symbol) == 1:
+                continue
             return candidates[0], INFERRED * line["confidence"]
 
     # 5. Nothing in the text, but the country still implies a currency.
