@@ -50,12 +50,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Invoice OCR Extraction", lifespan=lifespan)
 
-# Browser callers are cross-origin during development: the React dev
-# server runs on its own port. 5173 is Vite's default, 3000 Create React
-# App's. Add the deployed front-end URL here when there is one.
+# Browser callers are cross-origin: the front end is served from Vercel,
+# the API from Railway. 5173 is Vite's default for local development.
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://x2-p-pwa.vercel.app",
 ]
+
+# Vercel gives every preview deployment its own hostname
+# (x2-p-pwa-git-<branch>-<team>.vercel.app), so testing a branch build
+# would otherwise fail CORS even though production works.
+VERCEL_PREVIEW_ORIGIN = r"https://x2-p-pwa-[a-z0-9-]+\.vercel\.app"
 
 # Once the front end is served from somewhere else -- another machine on
 # the LAN, a phone, a deployed URL -- add that origin too, without having
@@ -73,6 +78,7 @@ ALLOWED_ORIGINS += [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=VERCEL_PREVIEW_ORIGIN,
     allow_methods=["*"],
     allow_headers=["*"],
 )
