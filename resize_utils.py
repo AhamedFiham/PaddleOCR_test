@@ -8,6 +8,18 @@ import os
 
 from PIL import Image, ImageOps
 
+# iPhones save gallery photos as HEIC, which Pillow cannot open on its
+# own -- without this an iPhone upload fails at Image.open(). Registering
+# the opener teaches Pillow the format; resize_for_ocr then converts it
+# to PNG, since PaddleOCR cannot read HEIC either.
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    HEIF_SUPPORTED = True
+except ImportError:  # pragma: no cover - depends on the install
+    HEIF_SUPPORTED = False
+
 DEFAULT_MAX_DIMENSION = 2000
 
 # Formats PaddleOCR will open. Anything else has to be converted first:

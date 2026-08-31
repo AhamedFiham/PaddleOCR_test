@@ -26,7 +26,12 @@ from resize_utils import resize_for_ocr
 from schemas import InvoiceConfirm, InvoiceExtractResponse, InvoiceOut
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+# .heic/.heif are what an iPhone hands over when the user picks an
+# existing photo rather than taking one. resize_for_ocr converts them.
+IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp",
+    ".heic", ".heif", ".avif",
+}
 
 
 @asynccontextmanager

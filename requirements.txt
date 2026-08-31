@@ -4,6 +4,9 @@
 paddlepaddle==3.3.1
 paddleocr==3.7.0
 pillow==12.3.0
+# iPhone gallery photos are HEIC, which Pillow cannot decode unaided.
+# The manylinux wheel bundles libheif, so no apt package is needed.
+pillow-heif==1.5.0
 fastapi==0.141.1
 uvicorn==0.52.4
 sqlalchemy==2.0.52
