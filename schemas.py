@@ -47,6 +47,18 @@ class InvoiceExtractResponse(BaseModel):
     # is also what resolves a shared currency symbol like "$" or "Rs".
     location: Optional[str] = None
     country: Optional[str] = None
+
+    # Suggested expense category. `expense_type` matches the front end's
+    # dropdown labels exactly. It is a suggestion to pre-select, never an
+    # answer to submit unreviewed: many of the leaves differ only by
+    # business context that is not on the receipt, which is what
+    # `expense_type_alternatives` is for -- the other plausible choices,
+    # to offer first instead of a list of seventy.
+    expense_type: Optional[str] = None
+    expense_code: Optional[str] = None
+    expense_category: Optional[str] = None
+    expense_type_confidence: float = 0.0
+    expense_type_alternatives: List[str] = Field(default_factory=list)
     line_items: List[LineItem] = Field(default_factory=list)
     field_confidence: Dict[str, float] = Field(default_factory=dict)
     raw_ocr: List[OcrLine] = Field(default_factory=list)

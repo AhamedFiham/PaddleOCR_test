@@ -13,6 +13,8 @@ import os
 import re
 from datetime import date
 
+from expense_types import classify_expense
+
 # Your own company name(s), comma-separated, e.g. "Hela Brands".
 # Every purchase invoice carries the buyer's name as well as the
 # supplier's, and on some layouts the bill-to block sits above the
@@ -1066,6 +1068,7 @@ def extract_fields(lines):
         "currency": currency,
         "location": location,
         "country": country,
+        **classify_expense(lines, vendor_name),
         "line_items": _extract_line_items(lines),
     }
     confidence = {
