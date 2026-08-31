@@ -1,8 +1,12 @@
 # Invoice OCR Extraction
 
-Extracts structured data from invoice images and PDFs with PaddleOCR,
-returns a draft for a human to verify, and saves the confirmed record to
-MySQL.
+Extracts structured data from invoice images and PDFs with PaddleOCR and
+returns it as JSON, with a confidence score per field.
+
+The service is **stateless**. There is no database and no stored upload:
+each file is OCR'd inside a temporary directory that is deleted before
+the response is sent. Keeping the original document, and keeping the
+extracted record, are the caller's business.
 
 ## Requirements
 
@@ -21,82 +25,110 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Then open <http://127.0.0.1:8000/docs> and drive the flow from Swagger UI.
+Then open <http://127.0.0.1:8000/docs> and drive it from Swagger UI.
 
-The service starts even when MySQL is unreachable — `/invoices/extract`
-has no database dependency, so the OCR half stays usable. Only the write
-endpoints fail until a database is configured.
+## API
 
-## Flow
+### `POST /invoices/extract`
 
-Two phases, deliberately. Raw OCR output is never written to the database.
+Multipart upload under the field name `file` — a PDF, or an image
+(PNG/JPEG/BMP/TIFF/WebP/HEIC/AVIF). Returns the extracted fields.
 
-1. `POST /invoices/extract` — upload a PDF or image. Returns the extracted
-   fields, a `field_confidence` score per field, the stored file path and
-   the full raw OCR output. **Nothing is persisted.**
-2. `POST /invoices` — submit the confirmed (possibly edited) fields. This
-   writes the record and its line items to MySQL with `status="verified"`.
-3. `GET /invoices/{id}` — read a saved record back.
-
-## Database
-
-Configured entirely through `DATABASE_URL`; nothing is hardcoded.
-
-```powershell
-$env:DATABASE_URL = "mysql+pymysql://USER:PASS@HOST:3306/DBNAME?charset=utf8mb4"
+```bash
+curl -F "file=@invoice.pdf" https://your-api/invoices/extract
 ```
 
-In PyCharm: Run → Edit Configurations → Environment variables.
+```json
+{
+  "invoice_number": "NW-88214",
+  "invoice_date": "2026-06-09",
+  "vendor_name": "Northwind Trading Ltd",
+  "subtotal": 317.0,
+  "tax_amount": 63.4,
+  "total_amount": 380.4,
+  "currency": "GBP",
+  "line_items": [
+    {"description": "Steel brackets 40mm", "quantity": 12.0,
+     "unit_price": 18.5, "line_total": 222.0}
+  ],
+  "field_confidence": {"invoice_number": 0.981, "total_amount": 1.0, "...": 0.0},
+  "raw_ocr": [{"text": "Northwind Trading Ltd", "confidence": 0.997}]
+}
+```
 
-The schema must already exist and be empty. `Base.metadata.create_all`
-creates the two tables (`invoices`, `invoice_line_items`) on first run, but
-it does not create the database itself.
+Every field can be `null`. An invoice whose date is unreadable is still
+worth returning, so a field the extractor could not fill is not an error
+— which is why `field_confidence` matters more than the presence of a
+value. Anything below ~0.7 is worth flagging in a review UI rather than
+presenting as trustworthy.
+
+`raw_ocr` is the full reading-order OCR output, returned so a bad
+extraction can be diagnosed without re-uploading the file.
+
+Errors: `400` for an unsupported file type, `500` if OCR itself fails.
+
+### `GET /health`
+
+Liveness probe for a load balancer or platform health check. Deliberately
+cheap — it does not touch the OCR engine, so it keeps answering while a
+long extract is running.
 
 ## Deploying to a server
 
 The front end is deployed separately, so it calls this API cross-origin.
 
 ```bash
-cp .env.example .env      # then edit it
+cp .env.example .env      # then set CORS_ORIGINS
 docker compose up -d --build
 ```
 
-`docker-compose.yml` runs three containers: the API, a MySQL 8 database,
-and an nginx reverse proxy on port 80.
+Two containers: the API, and an nginx reverse proxy on port 80. No
+database, no volumes — the service keeps nothing between requests, so a
+redeploy is only a rebuild and there is nothing to migrate or back up.
 
-Two settings in `.env` matter, and the service will refuse to start
-without them:
+`CORS_ORIGINS` is the one setting that must be right, and the stack
+refuses to start without it: the **browser origin the front end is served
+from**, e.g. `https://invoices.example.com`. Not the API's own URL.
+Scheme, host and port must match exactly, with no trailing slash.
 
-- `MYSQL_PASSWORD` — root password for the bundled database.
-- `CORS_ORIGINS` — the **browser origin the front end is served from**,
-  e.g. `https://invoices.example.com`. Not the API's own URL. Scheme,
-  host and port must match exactly, with no trailing slash.
+Because there is no state, this also deploys as a bare container to any
+platform that can run one (Railway, Render, Cloud Run, Fly). The
+Dockerfile honours the injected `$PORT`. Size the instance for **~2GB RAM
+and 2 vCPU**: the models sit resident in memory, and the container is
+CPU-bound while extracting.
 
 ### What the front-end developer needs
 
-- **The API base URL**, e.g. `https://invoice-api.example.com`. Endpoints
-  are `POST /invoices/extract`, `POST /invoices`, `GET /invoices/{id}`.
-- **Their origin added to `CORS_ORIGINS`** before anything will work from
-  a browser. A missing origin fails as an opaque CORS error, not a 4xx.
+- **The API base URL**, e.g. `https://invoice-api.example.com`. The only
+  endpoint they need is `POST /invoices/extract`.
+- **Their origin added to `CORS_ORIGINS`** before anything works from a
+  browser. A missing origin fails as an opaque CORS error, not a 4xx.
 - **HTTPS on this API if their site is HTTPS.** Browsers block an HTTPS
   page from calling an HTTP endpoint, and no CORS setting overrides that.
-  Terminate TLS at the proxy (or put this behind an existing load
-  balancer) before integration.
-- **A request timeout above 300s.** A single extract takes 100-250s on
-  CPU. Their HTTP client needs a raised timeout, and any CDN or load
-  balancer in front of this needs one too — nginx here is already set to
-  600s. This is the single most likely integration failure.
-- **`field_confidence`** is returned alongside the fields, scored 0-1 per
-  field. Anything below ~0.7 is worth flagging in the review UI rather
-  than presenting as trustworthy.
+  Terminate TLS at the proxy, or put this behind a load balancer that
+  does, before integration.
+- **A raised request timeout.** Extraction is CPU-bound and synchronous;
+  a phone photo runs a few seconds on the default `tiny` models, but a
+  long multi-page PDF scales per page. Measure with your own documents,
+  then set the client timeout well above the worst case — nginx here is
+  already at 600s. This is the most likely integration failure.
+- **Requests are serialised.** One worker, one extract at a time (see
+  `_PREDICT_LOCK` in [paddleOcr.py](paddleOcr.py)), so concurrent uploads
+  queue rather than run in parallel.
 
 ## Notes
 
-- **oneDNN must stay disabled.** `PaddleOCR(..., enable_mkldnn=False)` in
+- **oneDNN must stay disabled.** `enable_mkldnn=False` in
   [paddleOcr.py](paddleOcr.py) is required, not a tuning choice: with it
   enabled, paddlepaddle 3.3.1 aborts text detection on this platform with
   `ConvertPirAttribute2RuntimeAttribute not support
   [pir::ArrayAttribute<pir::DoubleAttribute>]`.
+- **`OCR_MODEL_SIZE` is the main speed/accuracy lever** (`tiny` |`small` |
+  `medium`, default `tiny`; measured timings are in
+  [paddleOcr.py](paddleOcr.py)). The Dockerfile bakes the matching model
+  weights into the image, so changing it needs a rebuild — otherwise the
+  runtime asks for weights the image does not have and downloads them on
+  the first request.
 - **The OCR engine is built once**, at app startup, and shared. Never
   construct `PaddleOCR(...)` inside a request handler.
 - Reading order is reconstructed from detection geometry, because raw

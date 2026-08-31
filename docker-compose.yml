@@ -1,35 +1,19 @@
-# Backend and database on one server. The front end is deployed
-# separately, so it calls this API cross-origin -- its URL must be listed
-# in CORS_ORIGINS below or the browser will block every request.
+# The API behind an nginx reverse proxy. No database and no volumes:
+# the service keeps nothing between requests, so a redeploy is only a
+# rebuild -- there is no data to migrate, back up or restore.
 #
 #   docker compose up -d --build
 #
 # The API is then on http://<server>/ (proxied to uvicorn on 8000).
-# Create a .env file next to this one with MYSQL_PASSWORD and
-# CORS_ORIGINS before deploying.
+# The front end is deployed separately, so it calls this API
+# cross-origin: create a .env file next to this one with CORS_ORIGINS
+# before deploying, or the browser will block every request.
 
 services:
-  db:
-    image: mysql:8.0
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
-      MYSQL_DATABASE: invoice_ocr
-    volumes:
-      - db_data:/var/lib/mysql
-    healthcheck:
-      # The API creates its tables at startup, so it must not start until
-      # MySQL is actually accepting connections, not merely running.
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_PASSWORD}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   api:
     build: .
     restart: unless-stopped
     environment:
-      DATABASE_URL: mysql+pymysql://root:${MYSQL_PASSWORD}@db:3306/invoice_ocr?charset=utf8mb4
       # The deployed front end's origin, e.g. https://invoices.example.com
       # Comma-separated for more than one. Scheme, host and port must
       # match exactly -- https://x.com and https://x.com:443 do not.
@@ -37,13 +21,10 @@ services:
       # Try 1 on Linux to speed inference up, then confirm OCR still
       # returns text -- it silently breaks detection on Windows.
       PADDLE_ENABLE_MKLDNN: "0"
-    volumes:
-      # Uploaded originals are referenced by file_path in the database,
-      # so they have to outlive the container.
-      - uploads:/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
+      # tiny | small | medium. The main speed/accuracy lever; see the
+      # measured timings in paddleOcr.py before raising it. Changing this
+      # needs a rebuild, since the Dockerfile bakes in the matching models.
+      OCR_MODEL_SIZE: tiny
 
   proxy:
     image: nginx:alpine
@@ -54,7 +35,3 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - api
-
-volumes:
-  db_data:
-  uploads:

@@ -30,13 +30,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Bake the detection and recognition models into the image. They are
-# ~100MB and would otherwise download on the first request, making it
-# look like a hang. Building them in also means the container starts
-# working without outbound network access.
-RUN python -c "from paddleocr import PaddleOCR; \
-PaddleOCR(lang='en', use_doc_orientation_classify=False, \
-use_doc_unwarping=False, use_textline_orientation=False, enable_mkldnn=False)"
+# Which model set to bake in. It has to match the OCR_MODEL_SIZE the
+# container runs with: get_ocr() names the models it wants, so a
+# mismatch means the runtime asks for weights the image does not have
+# and downloads them on the first request anyway. Setting it as ENV, not
+# just ARG, is what keeps the two in step by default.
+ARG OCR_MODEL_SIZE=tiny
+ENV OCR_MODEL_SIZE=${OCR_MODEL_SIZE}
+
+# Bake the detection and recognition models into the image. They would
+# otherwise download on the first request, making it look like a hang.
+# Building them in also means the container starts working without
+# outbound network access.
+#
+# This goes through the app's own get_ocr() rather than constructing a
+# PaddleOCR here, so the baked weights cannot drift from the ones the
+# service actually loads.
+RUN python -c "from paddleOcr import get_ocr; get_ocr()"
 
 EXPOSE 8000
 

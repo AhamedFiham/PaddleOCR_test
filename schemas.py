@@ -1,9 +1,9 @@
-"""Pydantic request/response models for the two-phase invoice flow."""
+"""Pydantic response models for the extraction endpoint."""
 
-from datetime import date, datetime
+from datetime import date
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class OcrLine(BaseModel):
@@ -18,28 +18,19 @@ class LineItem(BaseModel):
     line_total: Optional[float] = None
 
 
-class LineItemOut(LineItem):
-    model_config = ConfigDict(from_attributes=True)
+class InvoiceExtractResponse(BaseModel):
+    """Everything the service knows about one uploaded document.
 
-    id: int
+    Every field is optional because a value the extractor could not read
+    comes back as null rather than failing the request -- an invoice with
+    an unreadable date is still worth returning. ``field_confidence``
+    scores each field 0-1 and is what tells the caller how much to trust
+    the values that did come back; anything below ~0.7 is worth flagging
+    for review rather than presenting as fact.
 
-
-class InvoiceFields(BaseModel):
-    """The fields the extractor produces and the reviewer may edit."""
-
-    @field_validator("*", mode="before")
-    @classmethod
-    def _blank_to_none(cls, value):
-        """Treat an empty form field as "not provided".
-
-        A browser form has no concept of null: a field the extractor
-        could not fill, or the reviewer cleared, arrives as "". Without
-        this, an invoice with no readable date fails to save with a 422
-        instead of saving with the date left empty.
-        """
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
+    ``raw_ocr`` is the full reading-order OCR output, kept in the response
+    so a bad extraction can be diagnosed without re-uploading the file.
+    """
 
     invoice_number: Optional[str] = None
     invoice_date: Optional[date] = None
@@ -49,28 +40,5 @@ class InvoiceFields(BaseModel):
     total_amount: Optional[float] = None
     currency: Optional[str] = "GBP"
     line_items: List[LineItem] = Field(default_factory=list)
-
-
-class InvoiceExtractResponse(InvoiceFields):
-    """Draft returned by /invoices/extract. Nothing is persisted yet."""
-
     field_confidence: Dict[str, float] = Field(default_factory=dict)
-    file_path: str
     raw_ocr: List[OcrLine] = Field(default_factory=list)
-
-
-class InvoiceConfirm(InvoiceFields):
-    """Human-confirmed payload accepted by POST /invoices."""
-
-    file_path: Optional[str] = None
-    raw_ocr: List[OcrLine] = Field(default_factory=list)
-
-
-class InvoiceOut(InvoiceFields):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    file_path: Optional[str] = None
-    status: str
-    created_at: datetime
-    line_items: List[LineItemOut] = Field(default_factory=list)
