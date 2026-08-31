@@ -41,8 +41,121 @@ MONEY_RE = re.compile(MONEY_TOKEN)
 # number" matters for table rows: "Steel brackets 40mm" is a description,
 # not a quantity, even though a money pattern matches inside it.
 IS_PURE_MONEY = re.compile(rf"^\s*{MONEY_TOKEN}\s*(?:CR)?\s*$", re.I)
-CURRENCY_SYMBOLS = {"£": "GBP", "$": "USD", "€": "EUR"}
-CURRENCY_CODES = ("GBP", "USD", "EUR", "CHF", "SEK", "NOK", "DKK")
+# --- currency and country ----------------------------------------------
+# ISO 4217 codes recognised when written out. An explicit code is the
+# strongest signal there is: it needs no disambiguation.
+CURRENCY_CODES = (
+    "GBP", "USD", "EUR", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF",
+    "RON", "BGN", "TRY", "RUB", "UAH", "ILS", "AED", "SAR", "QAR", "KWD",
+    "BHD", "OMR", "EGP", "ZAR", "NGN", "KES", "GHS", "MAD", "TND",
+    "INR", "LKR", "PKR", "BDT", "NPR", "MVR",
+    "CNY", "RMB", "JPY", "KRW", "HKD", "TWD", "SGD", "MYR", "THB", "IDR",
+    "PHP", "VND", "AUD", "NZD", "CAD", "MXN", "BRL", "ARS", "CLP", "COP",
+)
+
+# Symbols that map to exactly one currency.
+CURRENCY_SYMBOLS = {
+    "£": "GBP", "€": "EUR", "₹": "INR", "₩": "KRW", "₪": "ILS",
+    "₺": "TRY", "₦": "NGN", "₱": "PHP", "฿": "THB", "₫": "VND",
+    "₽": "RUB", "₴": "UAH", "﷼": "SAR", "₸": "KZT", "₮": "MNT",
+}
+
+# Prefixed dollar and rupee forms. Checked before the bare symbols below,
+# because "A$" would otherwise match as a plain "$".
+QUALIFIED_SYMBOLS = {
+    "US$": "USD", "A$": "AUD", "AU$": "AUD", "C$": "CAD", "CA$": "CAD",
+    "NZ$": "NZD", "S$": "SGD", "HK$": "HKD", "NT$": "TWD", "R$": "BRL",
+    "RM": "MYR", "Rp": "IDR", "CHF": "CHF", "Kč": "CZK", "zł": "PLN",
+}
+
+# These must attach to an actual figure, and must not start mid-word:
+# a plain substring test reads the "RM" of "Ninja RMM" as Malaysian
+# ringgit and reports a Huddersfield invoice as MYR.
+QUALIFIED_SYMBOL_RE = {
+    re.compile(rf"(?<![A-Za-z]){re.escape(symbol)}\s*[\d(]"): code
+    for symbol, code in QUALIFIED_SYMBOLS.items()
+}
+
+# Symbols several countries share. These cannot be resolved on their own,
+# only by working out which country the invoice comes from -- which is
+# why location detection and currency detection are the same problem.
+AMBIGUOUS_SYMBOLS = {
+    "$": ("USD", "AUD", "CAD", "SGD", "HKD", "NZD", "MXN"),
+    "¥": ("JPY", "CNY"),
+    "₨": ("LKR", "PKR", "NPR"),
+    "Rs": ("INR", "LKR", "PKR", "NPR"),
+    "R": ("ZAR",),
+}
+
+# Currency written as a word.
+CURRENCY_WORDS = {
+    r"pounds?\s*sterling|sterling": "GBP", r"\beuros?\b": "EUR",
+    r"\byen\b": "JPY", r"\byuan\b|renminbi": "CNY", r"\bwon\b": "KRW",
+    r"\bbaht\b": "THB", r"\bringgit\b": "MYR", r"\brand\b": "ZAR",
+    r"\bnaira\b": "NGN", r"\bdirhams?\b": "AED", r"\briyals?\b": "SAR",
+    r"\btaka\b": "BDT", r"\brupiah\b": "IDR",
+}
+
+# Country -> (currency, canonical name). Drives both the location field
+# and the disambiguation above.
+COUNTRIES = {
+    r"sri\s*lanka": ("LKR", "Sri Lanka"),
+    r"united\s*kingdom|\bu\.?k\.?\b|england|scotland|wales": ("GBP", "United Kingdom"),
+    r"\bindia\b": ("INR", "India"),
+    r"pakistan": ("PKR", "Pakistan"),
+    r"bangladesh": ("BDT", "Bangladesh"),
+    r"\bnepal\b": ("NPR", "Nepal"),
+    r"united\s*states|\bu\.?s\.?a\.?\b": ("USD", "United States"),
+    r"australia": ("AUD", "Australia"),
+    r"new\s*zealand": ("NZD", "New Zealand"),
+    r"\bcanada\b": ("CAD", "Canada"),
+    r"singapore": ("SGD", "Singapore"),
+    r"hong\s*kong": ("HKD", "Hong Kong"),
+    r"malaysia": ("MYR", "Malaysia"),
+    r"indonesia": ("IDR", "Indonesia"),
+    r"thailand": ("THB", "Thailand"),
+    r"vietnam|viet\s*nam": ("VND", "Vietnam"),
+    r"philippines": ("PHP", "Philippines"),
+    r"\bchina\b": ("CNY", "China"),
+    r"\bjapan\b": ("JPY", "Japan"),
+    r"south\s*korea|\bkorea\b": ("KRW", "South Korea"),
+    r"germany|deutschland": ("EUR", "Germany"),
+    r"france": ("EUR", "France"),
+    r"netherlands|holland": ("EUR", "Netherlands"),
+    r"\bspain\b": ("EUR", "Spain"),
+    r"\bitaly\b": ("EUR", "Italy"),
+    r"ireland": ("EUR", "Ireland"),
+    r"switzerland": ("CHF", "Switzerland"),
+    r"sweden": ("SEK", "Sweden"),
+    r"norway": ("NOK", "Norway"),
+    r"denmark": ("DKK", "Denmark"),
+    r"poland": ("PLN", "Poland"),
+    r"turkey|t.rkiye": ("TRY", "Turkey"),
+    r"south\s*africa": ("ZAR", "South Africa"),
+    r"\bkenya\b": ("KES", "Kenya"),
+    r"nigeria": ("NGN", "Nigeria"),
+    r"\begypt\b": ("EGP", "Egypt"),
+    r"\buae\b|united\s*arab|\bdubai\b|abu\s*dhabi": ("AED", "United Arab Emirates"),
+    r"saudi": ("SAR", "Saudi Arabia"),
+    r"\bqatar\b": ("QAR", "Qatar"),
+    r"\bbrazil\b": ("BRL", "Brazil"),
+    r"\bmexico\b": ("MXN", "Mexico"),
+}
+
+# Cities and regions that pin down a country when the country itself is
+# not written on the invoice -- common on domestic invoices, which have
+# no reason to name their own country.
+CITY_HINTS = {
+    r"colombo|panadura|moratuwa|negombo|kandy|katunayake|gampaha|biyagama": "Sri Lanka",
+    r"\blondon\b|manchester|birmingham|leeds|glasgow|bristol|huddersfield|chelmsford": "United Kingdom",
+    r"mumbai|bengaluru|bangalore|chennai|delhi|tirupur|coimbatore": "India",
+    r"\bdhaka\b|chittagong": "Bangladesh",
+    r"karachi|lahore|faisalabad": "Pakistan",
+    r"\bdubai\b|sharjah": "United Arab Emirates",
+    r"\bsydney\b|melbourne|brisbane": "Australia",
+    r"new\s*york|los\s*angeles|chicago": "United States",
+}
+
 # A summary figure written with its currency, e.g. "EUR (1,0841) 476,14".
 CURRENCY_LINE = re.compile(rf"^(?:{'|'.join(CURRENCY_CODES)})\b.*\d", re.I)
 
@@ -413,17 +526,100 @@ def _extract_vendor(lines):
     return None, 0.0
 
 
-def _extract_currency(lines):
+def _extract_location(lines):
+    """Work out which country the invoice comes from.
+
+    Returns ``(country_name, currency_of_that_country, confidence)``, or
+    ``(None, None, 0.0)``. The country is worth having in its own right,
+    and it is also the only way to resolve a bare "$" or "Rs".
+
+    A named country beats a city, because a city can appear in an address
+    that is not the supplier's.
+
+    The country mentioned *most often* wins rather than the one mentioned
+    first. A line item can name a country it is not billed from -- one
+    Claranet invoice lists "International Access Service - Germany" above
+    its own UK address and phone number -- and taking the first match
+    reports the wrong country. The supplier's own country recurs across
+    letterhead, footer and registration details; an incidental one does
+    not.
+    """
+    tally = {}
     for line in lines:
-        for symbol, code in CURRENCY_SYMBOLS.items():
-            if symbol in line["text"]:
-                return code, ANCHOR_STRONG * line["confidence"]
+        text = line["text"]
+        for pattern, (currency, name) in COUNTRIES.items():
+            if re.search(pattern, text, re.I):
+                hits, best = tally.get(name, (0, 0.0))
+                tally[name] = (hits + 1, max(best, line["confidence"]))
+
+    if tally:
+        name, (hits, conf) = max(tally.items(), key=lambda kv: kv[1][0])
+        currency = next((c for p, (c, n) in COUNTRIES.items() if n == name), None)
+        # A single passing mention is much weaker evidence than a country
+        # that turns up throughout the document.
+        weight = ANCHOR_STRONG if hits > 1 else ANCHOR_WEAK
+        return name, currency, weight * conf
+
+    for line in lines:
+        for pattern, name in CITY_HINTS.items():
+            if re.search(pattern, line["text"], re.I):
+                currency = next(
+                    (c for p, (c, n) in COUNTRIES.items() if n == name), None
+                )
+                return name, currency, ANCHOR_WEAK * line["confidence"]
+
+    return None, None, 0.0
+
+
+def _extract_currency(lines, country_currency=None):
+    """Identify the invoice currency.
+
+    Signals in descending order of reliability: an explicit ISO code, a
+    symbol that only one currency uses, a currency written as a word,
+    then an ambiguous symbol resolved against the country. An ambiguous
+    symbol with no country to resolve it falls back to the most common
+    reading, flagged as inferred so the reviewer can see it was a guess.
+    """
+    # 1. An explicit ISO code needs no interpretation.
     for line in lines:
         upper = line["text"].upper()
         for code in CURRENCY_CODES:
             if re.search(rf"\b{code}\b", upper):
+                return ("CNY" if code == "RMB" else code), ANCHOR_STRONG * line["confidence"]
+
+    # 2. Symbols only one currency uses, and prefixed forms like A$.
+    for line in lines:
+        text = line["text"]
+        for pattern, code in QUALIFIED_SYMBOL_RE.items():
+            if pattern.search(text):
+                return code, ANCHOR_STRONG * line["confidence"]
+        for symbol, code in CURRENCY_SYMBOLS.items():
+            if symbol in text:
+                return code, ANCHOR_STRONG * line["confidence"]
+
+    # 3. The currency spelled out.
+    for line in lines:
+        for pattern, code in CURRENCY_WORDS.items():
+            if re.search(pattern, line["text"], re.I):
                 return code, ANCHOR_WEAK * line["confidence"]
-    return "GBP", INFERRED
+
+    # 4. A shared symbol, resolved by where the invoice is from.
+    for line in lines:
+        text = line["text"]
+        for symbol, candidates in AMBIGUOUS_SYMBOLS.items():
+            if not re.search(rf"{re.escape(symbol)}\s*\d", text):
+                continue
+            if country_currency in candidates:
+                return country_currency, ANCHOR_STRONG * line["confidence"]
+            return candidates[0], INFERRED * line["confidence"]
+
+    # 5. Nothing in the text, but the country still implies a currency.
+    if country_currency:
+        return country_currency, INFERRED
+
+    # Deliberately not defaulting to any currency: guessing GBP on an
+    # invoice from anywhere else is worse than admitting we do not know.
+    return None, 0.0
 
 
 def _extract_line_items(lines):
@@ -691,7 +887,10 @@ def extract_fields(lines):
         lines, TAX_ANCHORS, find_money, prefer_last=True
     )
     vendor_name, vendor_conf = _extract_vendor(lines)
-    currency, currency_conf = _extract_currency(lines)
+    # Location is resolved first: it is what disambiguates a bare "$" or
+    # "Rs", which several countries share.
+    location, location_currency, location_conf = _extract_location(lines)
+    currency, currency_conf = _extract_currency(lines, location_currency)
 
     money = {
         "subtotal": (subtotal, subtotal_conf),
@@ -720,6 +919,7 @@ def extract_fields(lines):
         "tax_amount": tax_amount,
         "total_amount": total_amount,
         "currency": currency,
+        "location": location,
         "line_items": _extract_line_items(lines),
     }
     confidence = {
@@ -730,6 +930,7 @@ def extract_fields(lines):
         "tax_amount": tax_conf,
         "total_amount": total_conf,
         "currency": currency_conf,
+        "location": location_conf,
         "line_items": 0.0,
     }
 

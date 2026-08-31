@@ -38,7 +38,12 @@ class InvoiceExtractResponse(BaseModel):
     subtotal: Optional[float] = None
     tax_amount: Optional[float] = None
     total_amount: Optional[float] = None
-    currency: Optional[str] = "GBP"
+    # No default currency: guessing one nationality's currency on an
+    # invoice from anywhere else is worse than returning null and letting
+    # the reviewer fill it in.
+    currency: Optional[str] = None
+    # Country the invoice appears to originate from, e.g. "Sri Lanka".
+    location: Optional[str] = None
     line_items: List[LineItem] = Field(default_factory=list)
     field_confidence: Dict[str, float] = Field(default_factory=dict)
     raw_ocr: List[OcrLine] = Field(default_factory=list)
