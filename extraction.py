@@ -160,19 +160,87 @@ COUNTRIES = {
     r"\bmexico\b": ("MXN", "Mexico"),
 }
 
-# Cities and regions that pin down a country when the country itself is
-# not written on the invoice -- common on domestic invoices, which have
-# no reason to name their own country.
-CITY_HINTS = {
-    r"colombo|panadura|moratuwa|negombo|kandy|katunayake|gampaha|biyagama": "Sri Lanka",
-    r"\blondon\b|manchester|birmingham|leeds|glasgow|bristol|huddersfield|chelmsford": "United Kingdom",
-    r"mumbai|bengaluru|bangalore|chennai|delhi|tirupur|coimbatore": "India",
-    r"\bdhaka\b|chittagong": "Bangladesh",
-    r"karachi|lahore|faisalabad": "Pakistan",
-    r"\bdubai\b|sharjah": "United Arab Emirates",
-    r"\bsydney\b|melbourne|brisbane": "Australia",
-    r"new\s*york|los\s*angeles|chicago": "United States",
+# Cities, with the country each belongs to. These serve two purposes:
+# they are the location worth reporting, and they pin down a country when
+# the invoice never names one -- which domestic invoices rarely do.
+CITY_COUNTRY = {
+    # Sri Lanka
+    "Colombo": "Sri Lanka", "Panadura": "Sri Lanka", "Moratuwa": "Sri Lanka",
+    "Negombo": "Sri Lanka", "Kandy": "Sri Lanka", "Katunayake": "Sri Lanka",
+    "Gampaha": "Sri Lanka", "Biyagama": "Sri Lanka", "Dehiwala": "Sri Lanka",
+    "Boralesgamuwa": "Sri Lanka", "Ratmalana": "Sri Lanka", "Kelaniya": "Sri Lanka",
+    # United Kingdom
+    "London": "United Kingdom", "Manchester": "United Kingdom",
+    "Birmingham": "United Kingdom", "Leeds": "United Kingdom",
+    "Glasgow": "United Kingdom", "Bristol": "United Kingdom",
+    "Huddersfield": "United Kingdom", "Chelmsford": "United Kingdom",
+    "Biggleswade": "United Kingdom", "Edinburgh": "United Kingdom",
+    "Liverpool": "United Kingdom", "Sheffield": "United Kingdom",
+    "Nottingham": "United Kingdom", "Cardiff": "United Kingdom",
+    "Belfast": "United Kingdom", "Gretna": "United Kingdom",
+    # India
+    "Chennai": "India", "Mumbai": "India", "Bengaluru": "India",
+    "Bangalore": "India", "Delhi": "India", "Hyderabad": "India",
+    "Kolkata": "India", "Pune": "India", "Tirupur": "India",
+    "Coimbatore": "India", "Ahmedabad": "India", "Noida": "India",
+    "Gurgaon": "India", "Jaipur": "India",
+    # Rest of Asia
+    "Dhaka": "Bangladesh", "Chittagong": "Bangladesh",
+    "Karachi": "Pakistan", "Lahore": "Pakistan", "Faisalabad": "Pakistan",
+    "Kathmandu": "Nepal",
+    "Dubai": "United Arab Emirates", "Sharjah": "United Arab Emirates",
+    "Abu Dhabi": "United Arab Emirates",
+    "Singapore": "Singapore", "Kuala Lumpur": "Malaysia", "Penang": "Malaysia",
+    "Bangkok": "Thailand", "Jakarta": "Indonesia", "Manila": "Philippines",
+    "Hanoi": "Vietnam", "Shanghai": "China", "Shenzhen": "China",
+    "Guangzhou": "China", "Beijing": "China", "Tokyo": "Japan",
+    "Osaka": "Japan", "Seoul": "South Korea",
+    # Elsewhere
+    "Sydney": "Australia", "Melbourne": "Australia", "Brisbane": "Australia",
+    "Perth": "Australia", "Auckland": "New Zealand",
+    "New York": "United States", "Los Angeles": "United States",
+    "Chicago": "United States", "Toronto": "Canada", "Vancouver": "Canada",
+    "Berlin": "Germany", "Hamburg": "Germany", "Munich": "Germany",
+    "Paris": "France", "Amsterdam": "Netherlands", "Madrid": "Spain",
+    "Milan": "Italy", "Dublin": "Ireland", "Zurich": "Switzerland",
+    "Geneva": "Switzerland", "Stockholm": "Sweden", "Copenhagen": "Denmark",
+    "Warsaw": "Poland", "Istanbul": "Turkey", "Cairo": "Egypt",
+    "Nairobi": "Kenya", "Lagos": "Nigeria", "Johannesburg": "South Africa",
+    "Cape Town": "South Africa",
 }
+
+CITY_PATTERN = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(c) for c in CITY_COUNTRY), key=len, reverse=True)) + r")\b",
+    re.I,
+)
+
+# Words that mark a line as part of a street address. The line after one
+# of these is usually the town, which is how an unlisted city is found.
+ADDRESS_MARKER = re.compile(
+    r"\b(road|rd|street|st|avenue|ave|lane|ln|drive|dr|way|place|court|"
+    r"nagar|mawatha|building|floor|block|plaza|estate|park|zone|"
+    r"industrial|no\.?\s*\d|\d+/\d+)\b",
+    re.I,
+)
+
+# Never a town, however address-like the surrounding lines look.
+NOT_A_PLACE = re.compile(
+    r"\d|@|www\.|http|invoice|total|tel|phone|fax|email|vat|gst|reg|"
+    r"\bltd\b|\blimited\b|\bplc\b|\bpvt\b|\binc\b|"
+    r"\bpage|\bnumber\b|\bdate\b|\bref\b|\bpayment\b|\baccount\b|\bcustomer\b|"
+    # Business headings that sit in the same position as a town and are
+    # otherwise shaped exactly like one -- Biffa's "Credit Control".
+    r"\bcontrol\b|\bservices?\b|\bdepartment\b|\bdept\b|\bremittance\b|"
+    r"\benquir|\bdeliver|\bdescription\b|\bterms\b|\bbank\b|\bsort\b|"
+    r"\bswift\b|\biban\b|\bcharges?\b|\bbalance\b|\bdue\b|\bcompany\b|"
+    r"\baddress\b|\bcontact\b|\bsupplier\b|\bbranch\b|\bdescription\b",
+    re.I,
+)
+
+# A town is letters, spaces and the odd hyphen or apostrophe -- never a
+# colon, digit or slash. Without this, DHL's "Number Of Pages:" line was
+# accepted as a location.
+PLACE_SHAPE = re.compile(r"^[A-Za-z][A-Za-z\s\-'\.]{2,29}$")
 
 # A summary figure written with its currency, e.g. "EUR (1,0841) 476,14".
 CURRENCY_LINE = re.compile(rf"^(?:{'|'.join(CURRENCY_CODES)})\b.*\d", re.I)
@@ -562,41 +630,85 @@ def _extract_location(lines):
     letterhead, footer and registration details; an incidental one does
     not.
     """
+    def currency_of(country):
+        return next((c for p, (c, n) in COUNTRIES.items() if n == country), None)
+
+    # --- the place, as printed on the invoice ---------------------------
+    # A recognised town near the top of the page is the supplier's own,
+    # and is what an expense record wants: "Chennai", not "India".
+    # Every purchase invoice carries the buyer's address as well as the
+    # supplier's, and the bill-to block often sits above the supplier's
+    # own. Skipping it stops our own town being reported as the place the
+    # expense happened -- the same confusion OWN_COMPANY_NAMES fixes for
+    # the vendor name.
+    skip = set()
+    if OWN_COMPANY_NAMES:
+        for i, line in enumerate(lines):
+            lowered = line["text"].lower()
+            if any(name in lowered for name in OWN_COMPANY_NAMES):
+                skip.update(range(i, i + 5))
+
+    location = None
+    location_conf = 0.0
+    city_country = None
+    for i, line in enumerate(lines[:20]):
+        if i in skip:
+            continue
+        match = CITY_PATTERN.search(line["text"])
+        if match:
+            # Report it in the list's canonical spelling, so "CHENNAI"
+            # and "chennai" do not become two different locations.
+            found = match.group(1)
+            location = next(
+                (c for c in CITY_COUNTRY if c.lower() == found.lower()), found
+            )
+            city_country = CITY_COUNTRY[location]
+            location_conf = ANCHOR_STRONG * line["confidence"]
+            break
+
+    if location is None:
+        # Not a town we know. The line following a street address is
+        # almost always the town, so take it and strip any region after
+        # the comma: "CHENNAI, TAMIL NADU." -> "Chennai".
+        for i, line in enumerate(lines[:19]):
+            if i in skip or i + 1 in skip:
+                continue
+            if not ADDRESS_MARKER.search(line["text"]):
+                continue
+            candidate = lines[i + 1]["text"].strip().rstrip(".,")
+            candidate = candidate.split(",")[0].strip()
+            if PLACE_SHAPE.match(candidate) and not NOT_A_PLACE.search(candidate):
+                location = candidate.title()
+                location_conf = INFERRED * lines[i + 1]["confidence"]
+                break
+
+    # --- the country, which is what resolves an ambiguous symbol -------
     tally = {}
     for line in lines:
-        text = line["text"]
         for pattern, (currency, name) in COUNTRIES.items():
-            if re.search(pattern, text, re.I):
+            if re.search(pattern, line["text"], re.I):
                 hits, best = tally.get(name, (0, 0.0))
                 tally[name] = (hits + 1, max(best, line["confidence"]))
 
+    country = None
     if tally:
-        name, (hits, conf) = max(tally.items(), key=lambda kv: kv[1][0])
-        currency = next((c for p, (c, n) in COUNTRIES.items() if n == name), None)
         # A single passing mention is much weaker evidence than a country
         # that turns up throughout the document.
-        weight = ANCHOR_STRONG if hits > 1 else ANCHOR_WEAK
-        return name, currency, weight * conf
+        country = max(tally.items(), key=lambda kv: kv[1][0])[0]
+    else:
+        # A tax registration scheme belongs to exactly one country, so it
+        # outranks a city, which can belong to any address on the page.
+        for line in lines:
+            for pattern, name in TAX_ID_HINTS.items():
+                if re.search(pattern, line["text"], re.I):
+                    country = name
+                    break
+            if country:
+                break
+        if country is None:
+            country = city_country
 
-    # A tax registration scheme belongs to exactly one country, so it
-    # outranks a city name, which can appear in any address on the page.
-    for line in lines:
-        for pattern, name in TAX_ID_HINTS.items():
-            if re.search(pattern, line["text"], re.I):
-                currency = next(
-                    (c for p, (c, n) in COUNTRIES.items() if n == name), None
-                )
-                return name, currency, ANCHOR_STRONG * line["confidence"]
-
-    for line in lines:
-        for pattern, name in CITY_HINTS.items():
-            if re.search(pattern, line["text"], re.I):
-                currency = next(
-                    (c for p, (c, n) in COUNTRIES.items() if n == name), None
-                )
-                return name, currency, ANCHOR_WEAK * line["confidence"]
-
-    return None, None, 0.0
+    return location, location_conf, country, currency_of(country) if country else None
 
 
 def _extract_currency(lines, country_currency=None):
@@ -922,8 +1034,8 @@ def extract_fields(lines):
     vendor_name, vendor_conf = _extract_vendor(lines)
     # Location is resolved first: it is what disambiguates a bare "$" or
     # "Rs", which several countries share.
-    location, location_currency, location_conf = _extract_location(lines)
-    currency, currency_conf = _extract_currency(lines, location_currency)
+    location, location_conf, country, country_currency = _extract_location(lines)
+    currency, currency_conf = _extract_currency(lines, country_currency)
 
     money = {
         "subtotal": (subtotal, subtotal_conf),
@@ -953,6 +1065,7 @@ def extract_fields(lines):
         "total_amount": total_amount,
         "currency": currency,
         "location": location,
+        "country": country,
         "line_items": _extract_line_items(lines),
     }
     confidence = {
@@ -964,6 +1077,9 @@ def extract_fields(lines):
         "total_amount": total_conf,
         "currency": currency_conf,
         "location": location_conf,
+        # Derived from the same evidence as location, so it inherits its
+        # score rather than claiming independent confidence.
+        "country": location_conf if country else 0.0,
         "line_items": 0.0,
     }
 

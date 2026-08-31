@@ -42,8 +42,11 @@ class InvoiceExtractResponse(BaseModel):
     # invoice from anywhere else is worse than returning null and letting
     # the reviewer fill it in.
     currency: Optional[str] = None
-    # Country the invoice appears to originate from, e.g. "Sri Lanka".
+    # The place as printed on the invoice, e.g. "Chennai" -- what an
+    # expense record wants. `country` is the wider region it sits in, and
+    # is also what resolves a shared currency symbol like "$" or "Rs".
     location: Optional[str] = None
+    country: Optional[str] = None
     line_items: List[LineItem] = Field(default_factory=list)
     field_confidence: Dict[str, float] = Field(default_factory=dict)
     raw_ocr: List[OcrLine] = Field(default_factory=list)
