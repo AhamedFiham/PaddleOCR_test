@@ -77,8 +77,12 @@ def resize_for_ocr(image_path, max_dimension=DEFAULT_MAX_DIMENSION):
         width, height = img.size
         longest = max(width, height)
         needs_convert = extension not in PADDLE_READABLE
+        # An alpha channel has to be flattened even when the image is
+        # small enough to need no other work, or a transparent-background
+        # PNG reaches OCR as black-on-black.
+        needs_flatten = img.mode in ("RGBA", "LA", "P")
 
-        if not (needs_resize or needs_convert or rotated):
+        if not (needs_resize or needs_convert or rotated or needs_flatten):
             return image_path
 
         if longest > max_dimension:
@@ -94,8 +98,20 @@ def resize_for_ocr(image_path, max_dimension=DEFAULT_MAX_DIMENSION):
         out_extension = extension if extension in PADDLE_READABLE else ".png"
         out_path = f"{base}_resized{out_extension}"
 
-        if img.mode not in ("RGB", "L"):
+        if img.mode in ("RGBA", "LA", "P"):
+            # Flatten onto white rather than letting convert("RGB") drop
+            # the alpha channel. Transparent pixels are commonly stored
+            # as black, so dropping alpha turns a transparent-background
+            # screenshot into black text on black, and OCR returns
+            # nothing at all -- an empty invoice rather than an error.
+            img = img.convert("RGBA")
+            flattened = Image.new("RGB", img.size, (255, 255, 255))
+            flattened.paste(img, mask=img.split()[-1])
+            img = flattened
+        elif img.mode != "RGB":
+            # CMYK, I;16, L and friends.
             img = img.convert("RGB")
+
         img.save(out_path)
 
     return out_path
