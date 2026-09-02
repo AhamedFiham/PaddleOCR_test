@@ -12,10 +12,16 @@ from PIL import Image, ImageOps
 # own -- without this an iPhone upload fails at Image.open(). Registering
 # the opener teaches Pillow the format; resize_for_ocr then converts it
 # to PNG, since PaddleOCR cannot read HEIC either.
+#
+# pi-heif rather than pillow-heif: the two are by the same author and
+# decode identically, but pillow-heif's wheels bundle the x265 *encoder*
+# and are therefore GPLv2, while pi-heif is decode-only and LGPLv3. We
+# only ever decode, so the GPL obligation would have been carried for
+# code that never runs. Do not swap this back.
 try:
-    import pillow_heif
+    import pi_heif
 
-    pillow_heif.register_heif_opener()
+    pi_heif.register_heif_opener()
     HEIF_SUPPORTED = True
 except ImportError:  # pragma: no cover - depends on the install
     HEIF_SUPPORTED = False

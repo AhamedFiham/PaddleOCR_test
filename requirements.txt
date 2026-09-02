@@ -6,7 +6,12 @@ paddleocr==3.7.0
 pillow==12.3.0
 # iPhone gallery photos are HEIC, which Pillow cannot decode unaided.
 # The manylinux wheel bundles libheif, so no apt package is needed.
-pillow-heif==1.5.0
+#
+# pi-heif, not pillow-heif: identical decoding, but pillow-heif's wheels
+# bundle the x265 encoder and are GPLv2, whereas pi-heif is decode-only
+# and LGPLv3 -- linkable from commercial software without the copyleft
+# obligation. This service only decodes.
+pi-heif==1.4.0
 fastapi==0.141.1
 uvicorn==0.52.4
 python-multipart==0.0.32
