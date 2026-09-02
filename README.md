@@ -47,6 +47,13 @@ curl -F "file=@invoice.pdf" https://your-api/invoices/extract
   "tax_amount": 63.4,
   "total_amount": 380.4,
   "currency": "GBP",
+  "location": "Chennai",
+  "country": "India",
+  "expense_type": "Courier/Shipping/Freight",
+  "expense_code": "6-4100",
+  "expense_category": "04. OFFICE EXPENSES",
+  "expense_type_confidence": 0.95,
+  "expense_type_alternatives": ["Postage", "Carriage Outwards"],
   "line_items": [
     {"description": "Steel brackets 40mm", "quantity": 12.0,
      "unit_price": 18.5, "line_total": 222.0}
@@ -61,6 +68,23 @@ worth returning, so a field the extractor could not fill is not an error
 — which is why `field_confidence` matters more than the presence of a
 value. Anything below ~0.7 is worth flagging in a review UI rather than
 presenting as trustworthy.
+
+`currency` is **not** defaulted. Guessing one nationality's currency on
+an invoice from anywhere else is a wrong answer stated confidently, so an
+undetected currency comes back `null` for the reviewer to fill in.
+
+`location` is the place as printed — "Chennai", not "India". `country`
+is the wider region, and is also what resolves a currency symbol several
+countries share: `Rs` is LKR beside a Colombo address and INR beside a
+Chennai one, and `$` is AUD in Sydney.
+
+`expense_type` matches the front end's dropdown labels exactly, so it can
+be pre-selected. Treat it as a suggestion, never an answer: roughly a
+third of those labels differ only by business context that is not on the
+receipt — the same restaurant bill is "Entertainment - Client" or
+"Entertainment - Staff" depending only on who was there. Those score low
+and return their siblings in `expense_type_alternatives`, so the claimant
+picks from two or three rather than a list of seventy-three.
 
 `raw_ocr` is the full reading-order OCR output, returned so a bad
 extraction can be diagnosed without re-uploading the file.
@@ -136,6 +160,30 @@ CPU-bound while extracting.
 - Detections below 0.5 confidence are dropped as noise.
 - Reading output files in PowerShell needs `Get-Content -Encoding utf8`;
   plain `Get-Content` misdecodes `£`.
+
+## Licensing
+
+Everything here is free of charge and self-hosted: no API key, no
+per-request cost, and no document leaves your server.
+
+| Component | Licence |
+| --- | --- |
+| paddleocr, paddlepaddle, paddlex, PP-OCRv6 models | Apache 2.0 |
+| pypdfium2 / PDFium | BSD-3-Clause + Apache 2.0 |
+| pillow, fastapi, uvicorn | Permissive (MIT/BSD-style) |
+| **pi-heif** (HEIC decoding) | **LGPLv3** |
+
+Everything is permissive except the HEIC decoder, which is LGPLv3 —
+linkable from commercial software without any obligation on the
+surrounding source, since it loads as a shared library.
+
+Note for anyone tempted to swap it: **use `pi-heif`, not
+`pillow-heif`.** They share an author and decode identically, but
+pillow-heif's wheels bundle the x265 *encoder* and are therefore GPLv2.
+This service only ever decodes, so that would mean carrying a copyleft
+obligation for code that never runs — and it would attach the moment the
+service is shipped to a client as a container rather than hosted for
+them.
 
 ## CLI
 
