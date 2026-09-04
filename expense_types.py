@@ -162,7 +162,29 @@ TYPE_KEYWORDS = {
     "Bank Fees": [(r"bank\s*(charge|fee)|account\s*fee|overdraft|interest\s*charge|\bbacs\b\s*fee|transaction\s*fee.*bank", 3)],
     "Barclaycard Charges": [(r"barclaycard", 3)],
     "Legal/ Professional Charges": [(r"\blegal\b|\bsolicitor|\bbarrister|professional\s*(fee|charge|service)|\bconsultanc|\baccountanc|\baudit\s*fee|advisory\s*fee", 3)],
-    "Medical Fees": [(r"\bmedical\b|\bclinic\b|\bhospital\b|\bpharmac|\bdoctor\b|\bdental\b|prescription|\bdiagnostic|\bsurgery\b|\bvaccin", 3)],
+    "Medical Fees": [
+        (r"\bmedical\b|\bclinic\b|\bhospital\b|\bpharmac|\bdoctor\b|\bdental\b|prescription|\bdiagnostic|\bsurgery\b|\bvaccin", 3),
+        # Prescription and packaging language. Distinctive as a set --
+        # none of these show up on an ordinary retail or office receipt.
+        (r"\brx\s*(no|number)?\b|\bschedule\s*h\b|drug\s*licen[cs]e|"
+         r"batch\s*(no|number)|\b(mfg|manufactur\w*)\s*date\b|"
+         r"\bexp(?:iry)?\s*date\b|generic\s*name|composition\s*:", 2),
+        (r"\btablets?\b|\bcapsules?\b|\bsyrup\b|\bointment\b|\binjection\b|"
+         r"\bdosage\b|\bstrip\s*of\b", 2),
+        # Common drug names, generic (INN) and brand. Multi-syllable
+        # pharmaceutical terms on purpose -- low collision risk with
+        # ordinary invoice text, unlike a short brand fragment.
+        (r"\bparacetamol\b|\bacetaminophen\b|\bibuprofen\b|\bamoxicillin\b|"
+         r"\bazithromycin\b|\bmetformin\b|\bamlodipine\b|\bomeprazole\b|"
+         r"\bpantoprazole\b|\batorvastatin\b|\blosartan\b|\bcetirizine\b|"
+         r"\bloratadine\b|\bdiclofenac\b|\baspirin\b|\binsulin\b|"
+         r"\bsalbutamol\b|\bciprofloxacin\b|\bdoxycycline\b|\bprednisolone\b|"
+         r"\branitidine\b|\bdomperidone\b|\bondansetron\b|\bmetronidazole\b", 3),
+        (r"\bpanadol\b|\bcalpol\b|\bnurofen\b|\bdisprin\b|\bcrocin\b|\bdolo\b|"
+         r"\bcombiflam\b|\baugmentin\b|\bamoxil\b|\bzantac\b|\bvoltaren\b|"
+         r"\bbetadine\b|\bbepanthen\b|\balternagel\b|\bgaviscon\b|\bimodium\b|"
+         r"\bbenadryl\b|\bclaritin\b|\bzyrtec\b|\bflexon\b|\bsinarest\b", 3),
+    ],
     "Passport/Visa Fees": [(r"\bpassport\b|\bvisa\s*(fee|application|appl)|\bimmigration\b|entry\s*permit|\betav?\b\s*fee", 3)],
     "Shopify Transaction Fees": [(r"shopify", 3)],
     "Subscription & Donations": [(r"\bsubscription\b|\bmembership\b|\bdonation\b|annual\s*fee.*member|\bcharity\b", 2)],
@@ -215,6 +237,19 @@ DISTINCTIVE_BRANDS = {
     r"\bvodafone\b|\bairtel\b|\bmobitel\b": "Mobile Phone",
     r"\bvirgin\s*media\b|\btalktalk\b|\bclaranet\b": "Telephone/Internet/Fax",
     r"\bbiffa\b|\bveolia\b": "Cleaning",
+
+    # Hospital and pharmacy chains. Written as full compound names on
+    # purpose, not single words: "Max Healthcare" is safe to match
+    # anywhere, but bare "Max" is exactly the kind of one-word collision
+    # that turned "Ninja RMM" into a Malaysian ringgit invoice.
+    r"\bapollo\s*(hospitals?|pharmacy|clinic)\b|\bfortis\s*(hospital|healthcare)\b"
+    r"|\bmanipal\s*hospital\b|\bmax\s*healthcare\b|\bcolumbia\s*asia\b"
+    r"|\bnarayana\s*health\b|\bmedanta\b|\baiims\b|\bmedplus\b"
+    r"|\bnawaloka\s*hospital\b|\basiri\s*hospital\b|\bdurdans\s*hospital\b"
+    r"|\blanka\s*hospitals?\b|\bhemas\s*hospital\b"
+    r"|\bnhs\b|\bboots\s*pharmacy\b|\blloyds\s*pharmacy\b|\bsuperdrug\b"
+    r"|\bwalgreens\b|\bcvs\s*pharmacy\b|\brite\s*aid\b"
+    r"|\bguardian\s*pharmacy\b|\bwatsons\b|\bunichem\b": "Medical Fees",
 }
 
 # Brand names that are also ordinary words. Searching the body text for
