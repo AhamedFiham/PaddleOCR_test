@@ -49,6 +49,7 @@ app = FastAPI(title="Invoice OCR Extraction", lifespan=lifespan)
 # the API from Railway. 5173 is Vite's default for local development.
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://172.23.1.46",
     "https://x2-p-pwa.vercel.app",
 ]
 
