@@ -51,6 +51,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://172.23.1.46",
     "https://x2-p-pwa.vercel.app",
+    "https://reap.emeraldclothing.com",
 ]
 
 # Vercel gives every preview deployment its own hostname
